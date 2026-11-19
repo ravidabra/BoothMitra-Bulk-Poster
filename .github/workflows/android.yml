@@ -1,18 +1,21 @@
-name: Build Booth Mitra Android APK
+name: Build Booth Mitra V3 APK
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - '*.zip'
+      - '**.zip'
       - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -21,28 +24,43 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK packages
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK Packages
         run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)
-          yes | "$SDKMANAGER" --licenses
-          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          yes | sdkmanager --licenses
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools"
+
+      - name: Find V3 ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f \
+            -iname 'BoothMitra_V3_Android_Project*.zip' \
+            -print -quit)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "V3 ZIP file not found"
+            exit 1
+          fi
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
+
+      - name: Extract V3 Project
+        run: |
+          mkdir -p v3_src
+          unzip -q "$ZIP_FILE" -d v3_src
+          test -f v3_src/app/build.gradle
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
-      - name: Extract Android project
-        run: |
-          mkdir project_src
-          unzip -q *.zip -d project_src
-
-      - name: Build APK
-        working-directory: project_src/BoothMitra_Android_Project
-        run: gradle --no-daemon assembleDebug
+      - name: Build Android APK
+        run: gradle -p v3_src --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BoothMitra-Android-APK
-          path: project_src/BoothMitra_Android_Project/app/build/outputs/apk/debug/app-debug.apk
+          name: BoothMitra-V3-Android-APK
+          path: v3_src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
