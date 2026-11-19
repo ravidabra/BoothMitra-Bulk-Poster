@@ -24,43 +24,61 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK Packages
+      - name: Install Android SDK
+        shell: bash
         run: |
-          yes | sdkmanager --licenses
-          sdkmanager --install \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "platform-tools"
-
-      - name: Find V3 ZIP
-        run: |
-          ZIP_FILE=$(find . -maxdepth 1 -type f \
-            -iname 'BoothMitra_V3_Android_Project*.zip' \
-            -print -quit)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "V3 ZIP file not found"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "SDK Manager not found"
             exit 1
           fi
+          yes | "$SDKMANAGER" --licenses
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Find V3 ZIP
+        shell: bash
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -iname 'BoothMitra_V3_Android_Project*.zip' -print -quit)
+          test -n "$ZIP_FILE"
           echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
 
       - name: Extract V3 Project
         run: |
           mkdir -p v3_src
           unzip -q "$ZIP_FILE" -d v3_src
-          test -f v3_src/app/build.gradle
+
+      - name: Locate Android Project
+        shell: bash
+        run: |
+          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/v3_src" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -printf '%h\n' | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Gradle project not found in ZIP"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-      - name: Build Android APK
-        run: gradle -p v3_src --no-daemon assembleDebug
+      - name: Build APK
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BoothMitra-V3-Android-APK
-          path: v3_src/app/build/outputs/apk/debug/app-debug.apk
+          name: BoothMitra-V3-APK
+          path: v3_src/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
